@@ -203,6 +203,7 @@
     color:#EFEDE0; border-radius:8px; font-size:13px; font-weight:600;
   }
   .logout-btn:hover{border-color:var(--accent); color:var(--accent);}
+  .mobile-logout-btn{display:none;}
 
   .main{padding:34px 40px; max-width:1180px;}
   .main-header{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:28px; flex-wrap:wrap; gap:12px;}
@@ -320,9 +321,14 @@
     }
     .sidebar-brand,.sidebar-user,.sidebar-bottom{display:none;}
     .nav-item{white-space:nowrap; width:auto;}
-    .main{padding:22px 18px;}
+    .main{padding:22px 18px; padding-top:64px;}
     .login-wrap{grid-template-columns:1fr;}
     .login-side{display:none;}
+    .mobile-logout-btn{
+      display:block; position:fixed; top:12px; right:12px; z-index:60;
+      background:var(--accent-2); color:#fff; border:none; padding:8px 15px;
+      border-radius:20px; font-size:12.5px; font-weight:600; box-shadow:var(--shadow);
+    }
   }
 </style>
 </head>
@@ -371,6 +377,7 @@
 
 <!-- ==================== APP ==================== -->
 <div id="app-screen">
+  <button class="mobile-logout-btn" id="btn-logout-mobile">Sair</button>
   <div class="app-shell">
     <div class="sidebar">
       <div class="sidebar-brand">
@@ -404,7 +411,7 @@
 import { firebaseConfig } from './firebase-config.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
-  getFirestore, collection, doc, addDoc, deleteDoc, getDocs, onSnapshot
+  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, getDocs, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 /* Observação: esta versão NÃO usa o Firebase Storage (requer plano Blaze).
    O envio de conteúdo aceita um link externo (Google Drive, Classroom etc.)
@@ -439,6 +446,15 @@ let unsubUsers = null, unsubConteudos = null;
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const uid = () => Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4);
+
+const DISCIPLINAS = [
+  'Língua Portuguesa','Matemática','Ciências','História','Geografia','Artes',
+  'Educação Física','Inglês','Biologia','Física','Química','Sociologia',
+  'Filosofia','Ensino Religioso','Outra'
+];
+function disciplinaOptionsHtml(selected){
+  return DISCIPLINAS.map(d=>`<option ${d===selected?'selected':''}>${d}</option>`).join('');
+}
 
 function showToast(msg){
   if(!msg) return;
@@ -532,6 +548,7 @@ function enterApp(){
   $('#login-screen').style.display='none';
   $('#app-screen').style.display='block';
   $('#btn-logout').onclick = logout;
+  $('#btn-logout-mobile').onclick = logout;
 
   const u = STATE.session;
   $('#sb-name').textContent = u.nome;
@@ -623,7 +640,7 @@ function renderPedagogo(){
       aees.map(a=>{
         const count = regentes.filter(r=>r.aeeId===a.id).length;
         return `<tr><td><span class="tag tag-aee">AEE</span> ${a.nome}</td><td class="mono">${a.usuario}</td><td>${count}</td>
-          <td class="row-actions"><button class="btn btn-danger btn-sm" data-remove="${a.id}">Remover</button></td></tr>`;
+          <td class="row-actions"><button class="btn btn-ghost btn-sm" data-edit-aee="${a.id}">Editar</button><button class="btn btn-danger btn-sm" data-remove="${a.id}">Remover</button></td></tr>`;
       }).join('') + `</tbody></table>` : `<div class="empty-state">Nenhum professor AEE cadastrado ainda. Cadastre o primeiro acesso acima.</div>`;
     html += `</div>`;
   }
@@ -634,7 +651,7 @@ function renderPedagogo(){
       regentes.map(r=>{
         const aeeName = (STATE.users.find(u=>u.id===r.aeeId)||{}).nome || '—';
         return `<tr><td><span class="tag tag-regente">Regente</span> ${r.nome}</td><td>${r.disciplina}</td><td>${r.turma}</td><td>${aeeName}</td><td class="mono">${r.usuario}</td>
-          <td class="row-actions"><button class="btn btn-danger btn-sm" data-remove="${r.id}">Remover</button></td></tr>`;
+          <td class="row-actions"><button class="btn btn-ghost btn-sm" data-edit-regente="${r.id}">Editar</button><button class="btn btn-danger btn-sm" data-remove="${r.id}">Remover</button></td></tr>`;
       }).join('') + `</tbody></table>` : `<div class="empty-state">Nenhum professor regente cadastrado ainda.</div>`;
     html += `</div>`;
   }
@@ -647,6 +664,8 @@ function renderPedagogo(){
 
   if(tab==='aees'){ $('#btn-open-aee').addEventListener('click', openNewAeeModal); }
   $$('[data-remove]').forEach(btn=>btn.addEventListener('click', ()=>removeUser(btn.dataset.remove)));
+  $$('[data-edit-aee]').forEach(btn=>btn.addEventListener('click', ()=>openEditAeeModal(btn.dataset.editAee)));
+  $$('[data-edit-regente]').forEach(btn=>btn.addEventListener('click', ()=>openEditRegenteModal(btn.dataset.editRegente)));
 }
 
 function openNewAeeModal(){
@@ -676,6 +695,35 @@ async function saveNewAee(){
   }catch(e){ console.error(e); showToast('Erro ao salvar no Firebase.'); }
 }
 
+function openEditAeeModal(id){
+  const a = STATE.users.find(u=>u.id===id);
+  if(!a) return;
+  openModal(`
+    <h3>Editar Professor(a) AEE</h3>
+    <div class="modal-sub">Altere os dados e salve.</div>
+    <div class="field"><label>Nome completo</label><input id="m-nome" value="${a.nome}"></div>
+    <div class="field"><label>Usuário de acesso</label><input id="m-usuario" value="${a.usuario}"></div>
+    <div class="field"><label>Senha</label><input id="m-senha" type="text" value="${a.senha}"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="m-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="m-save">Salvar alterações</button>
+    </div>
+  `);
+  $('#m-cancel').addEventListener('click', closeModal);
+  $('#m-save').addEventListener('click', ()=>saveEditAee(id));
+}
+async function saveEditAee(id){
+  const nome = $('#m-nome').value.trim();
+  const usuario = $('#m-usuario').value.trim();
+  const senha = $('#m-senha').value;
+  if(!nome||!usuario||!senha){ showToast('Preencha todos os campos.'); return; }
+  if(STATE.users.some(u=>u.id!==id && u.usuario.toLowerCase()===usuario.toLowerCase())){ showToast('Esse usuário já existe.'); return; }
+  try{
+    await updateDoc(doc(db,'users', id), {nome, usuario, senha});
+    closeModal(); showToast('Professor(a) AEE atualizado(a).');
+  }catch(e){ console.error(e); showToast('Erro ao salvar no Firebase.'); }
+}
+
 async function removeUser(id){
   if(!confirm('Remover este cadastro? Essa ação não pode ser desfeita.')) return;
   try{
@@ -702,7 +750,7 @@ function renderAEE(){
       </div>`;
     html += meusRegentes.length ? `<table><thead><tr><th>Nome</th><th>Disciplina</th><th>Turma</th><th>Usuário</th><th></th></tr></thead><tbody>` +
       meusRegentes.map(r=>`<tr><td>${r.nome}</td><td>${r.disciplina}</td><td>${r.turma}</td><td class="mono">${r.usuario}</td>
-        <td class="row-actions"><button class="btn btn-danger btn-sm" data-remove="${r.id}">Remover</button></td></tr>`).join('')
+        <td class="row-actions"><button class="btn btn-ghost btn-sm" data-edit-regente="${r.id}">Editar</button><button class="btn btn-danger btn-sm" data-remove="${r.id}">Remover</button></td></tr>`).join('')
       + `</tbody></table>` : `<div class="empty-state">Você ainda não inseriu nenhum professor regente. Clique em "Inserir professor regente" para escolher a disciplina e a turma.</div>`;
     html += `</div>`;
   }
@@ -717,6 +765,7 @@ function renderAEE(){
 
   if(tab==='regentes-aee'){ $('#btn-open-regente').addEventListener('click', openNewRegenteModal); }
   $$('[data-remove]').forEach(btn=>btn.addEventListener('click', ()=>removeUser(btn.dataset.remove)));
+  $$('[data-edit-regente]').forEach(btn=>btn.addEventListener('click', ()=>openEditRegenteModal(btn.dataset.editRegente)));
 }
 
 function openNewRegenteModal(){
@@ -725,11 +774,7 @@ function openNewRegenteModal(){
     <div class="modal-sub">Escolha a disciplina e a turma em que ele(a) leciona e crie o acesso dele(a).</div>
     <div class="field"><label>Nome completo</label><input id="m-nome" placeholder="Ex: João Pereira"></div>
     <div class="field"><label>Disciplina</label>
-      <select id="m-disciplina">
-        <option>Língua Portuguesa</option><option>Matemática</option><option>Ciências</option>
-        <option>História</option><option>Geografia</option><option>Artes</option>
-        <option>Educação Física</option><option>Inglês</option><option>Outra</option>
-      </select>
+      <select id="m-disciplina">${disciplinaOptionsHtml()}</select>
     </div>
     <div class="field"><label>Turma</label><input id="m-turma" placeholder="Ex: 6º Ano B"></div>
     <div class="field"><label>Usuário de acesso</label><input id="m-usuario" placeholder="Ex: joao.regente"></div>
@@ -753,6 +798,41 @@ async function saveNewRegente(){
   try{
     await addDoc(collection(db,'users'), {tipo:'regente', nome, disciplina, turma, usuario, senha, aeeId: STATE.session.id});
     closeModal(); showToast('Professor regente inserido.');
+  }catch(e){ console.error(e); showToast('Erro ao salvar no Firebase.'); }
+}
+
+function openEditRegenteModal(id){
+  const r = STATE.users.find(u=>u.id===id);
+  if(!r) return;
+  openModal(`
+    <h3>Editar Professor Regente</h3>
+    <div class="modal-sub">Altere os dados e salve.</div>
+    <div class="field"><label>Nome completo</label><input id="m-nome" value="${r.nome}"></div>
+    <div class="field"><label>Disciplina</label>
+      <select id="m-disciplina">${disciplinaOptionsHtml(r.disciplina)}</select>
+    </div>
+    <div class="field"><label>Turma</label><input id="m-turma" value="${r.turma}"></div>
+    <div class="field"><label>Usuário de acesso</label><input id="m-usuario" value="${r.usuario}"></div>
+    <div class="field"><label>Senha</label><input id="m-senha" type="text" value="${r.senha}"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="m-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="m-save">Salvar alterações</button>
+    </div>
+  `);
+  $('#m-cancel').addEventListener('click', closeModal);
+  $('#m-save').addEventListener('click', ()=>saveEditRegente(id));
+}
+async function saveEditRegente(id){
+  const nome = $('#m-nome').value.trim();
+  const disciplina = $('#m-disciplina').value;
+  const turma = $('#m-turma').value.trim();
+  const usuario = $('#m-usuario').value.trim();
+  const senha = $('#m-senha').value;
+  if(!nome||!turma||!usuario||!senha){ showToast('Preencha todos os campos.'); return; }
+  if(STATE.users.some(u=>u.id!==id && u.usuario.toLowerCase()===usuario.toLowerCase())){ showToast('Esse usuário já existe.'); return; }
+  try{
+    await updateDoc(doc(db,'users', id), {nome, disciplina, turma, usuario, senha});
+    closeModal(); showToast('Professor regente atualizado.');
   }catch(e){ console.error(e); showToast('Erro ao salvar no Firebase.'); }
 }
 
@@ -786,6 +866,13 @@ function renderRegente(){
         <label>Link do material (opcional)</label>
         <input type="url" id="f-link" placeholder="Cole aqui o link do Google Drive, Classroom, foto no Google Fotos etc.">
       </div>
+      <div class="field">
+        <label>Importar arquivo (opcional — até 700KB)</label>
+        <div class="file-drop">
+          <input type="file" id="f-arquivo">
+          <div id="f-arquivo-chip"></div>
+        </div>
+      </div>
       <button class="btn btn-primary" id="btn-enviar-conteudo">Enviar para o AEE</button>
     </div>`;
   }
@@ -798,9 +885,9 @@ function renderRegente(){
         <div class="folder-info">
           <div class="title">${c.titulo}</div>
           <div class="desc">${c.descricao||''}</div>
-          <div class="meta">enviado em ${formatDateTime(c.dataEnvio)} ${c.fileURL ? '· 🔗 com link' : ''}</div>
+          <div class="meta">enviado em ${formatDateTime(c.dataEnvio)} ${c.fileURL ? '· 🔗 com link' : ''}${c.fileData ? '· 📎 '+(c.fileName||'arquivo') : ''}</div>
         </div>
-        ${c.fileURL ? `<button class="btn btn-ghost btn-sm" data-download="${c.id}">Abrir link</button>` : ''}
+        ${(c.fileURL || c.fileData) ? `<button class="btn btn-ghost btn-sm" data-download="${c.id}">${c.fileURL ? 'Abrir link' : 'Baixar'}</button>` : ''}
       </div>`).join('') + `</div>` : `<div class="empty-state">Você ainda não enviou nenhum conteúdo.</div>`;
     html += `</div>`;
   }
@@ -809,6 +896,17 @@ function renderRegente(){
 
   if(tab==='enviar'){
     $('#f-semana').valueAsDate = mondayOfCurrentWeek();
+    $('#f-arquivo').addEventListener('change', e=>{
+      const f = e.target.files[0];
+      const chip = $('#f-arquivo-chip');
+      if(!f){ chip.innerHTML=''; return; }
+      if(f.size > 700*1024){
+        chip.innerHTML = `<span class="file-chip" style="background:#F3E4E0;color:#B5533C;">Arquivo maior que 700KB — escolha outro ou use o campo de link acima</span>`;
+        e.target.value='';
+        return;
+      }
+      chip.innerHTML = `<span class="file-chip">📎 ${f.name}</span>`;
+    });
     $('#btn-enviar-conteudo').addEventListener('click', submitConteudo);
   }
   $$('[data-download]').forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
@@ -819,6 +917,8 @@ async function submitConteudo(){
   const titulo = $('#f-titulo').value.trim();
   const descricao = $('#f-desc').value.trim();
   const link = $('#f-link').value.trim();
+  const fileInput = $('#f-arquivo');
+  const file = fileInput.files[0];
   const btn = $('#btn-enviar-conteudo');
 
   if(!semana || !titulo || !descricao){ showToast('Preencha semana, título e descrição.'); return; }
@@ -828,11 +928,17 @@ async function submitConteudo(){
   btn.disabled = true; btn.textContent = 'Enviando...';
 
   try{
+    let fileData = null, fileName = null;
+    if(file){
+      fileData = await readFileAsDataUrl(file);
+      fileName = file.name;
+    }
     const meta = {
       regenteId:u.id, regenteNome:u.nome, aeeId:u.aeeId,
       disciplina:u.disciplina, turma:u.turma,
       semana, titulo, descricao,
       fileURL: link || null,
+      fileData, fileName,
       dataEnvio: new Date().toISOString()
     };
     await addDoc(collection(db,'conteudos'), meta);
@@ -847,10 +953,27 @@ async function submitConteudo(){
   }
 }
 
+function readFileAsDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result);
+    r.onerror = ()=>reject(new Error('Falha ao ler arquivo'));
+    r.readAsDataURL(file);
+  });
+}
+
 function downloadFile(id){
   const item = STATE.index.find(c=>c.id===id);
-  if(!item || !item.fileURL) return;
-  window.open(item.fileURL, '_blank');
+  if(!item) return;
+  if(item.fileURL){ window.open(item.fileURL, '_blank'); return; }
+  if(item.fileData){
+    const a = document.createElement('a');
+    a.href = item.fileData;
+    a.download = item.fileName || 'arquivo';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
 }
 
 /* ============================================================
@@ -903,7 +1026,7 @@ function renderConteudoTable(list, compact){
         <td>${c.regenteNome}</td>
         <td>${c.turma}</td>
         <td>${c.disciplina}</td>
-        <td>${c.fileURL ? `<button class="btn btn-ghost btn-sm" data-download="${c.id}">Abrir link 🔗</button>` : ''}</td>
+        <td>${c.fileURL ? `<button class="btn btn-ghost btn-sm" data-download="${c.id}">Abrir link 🔗</button>` : (c.fileData ? `<button class="btn btn-ghost btn-sm" data-download="${c.id}">Baixar 📎</button>` : '')}</td>
       </tr>`).join('') +
     `</tbody></table>`;
 }
