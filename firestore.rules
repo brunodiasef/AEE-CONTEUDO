@@ -1,0 +1,18 @@
+rules_version = '2';
+
+// Regras básicas para uso interno da escola.
+// Como o app usa login próprio (usuário/senha guardados no Firestore) em vez do
+// Firebase Authentication, não é possível restringir por "usuário logado" no
+// servidor. Estas regras liberam leitura/escrita para quem tiver o link do app —
+// suficiente para uso interno, mas avalie o aviso de segurança no README antes
+// de usar com dados sensíveis de alunos.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+    match /conteudos/{conteudoId} {
+      allow read, write: if true;
+    }
+  }
+}

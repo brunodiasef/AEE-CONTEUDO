@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// Mesma lógica das regras do Firestore: liberado para quem acessa o app,
+// pensado para uso interno da escola. Veja o README para reforçar a segurança.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /anexos/{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}

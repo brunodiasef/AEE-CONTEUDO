@@ -2,8 +2,20 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Monitoramento AEE</title>
+
+<!-- PWA -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#1F3E3C">
+<meta name="background-color" content="#EEF1E9">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AEE">
+<link rel="apple-touch-icon" href="./icons/icon-apple-touch.png">
+<link rel="icon" href="./icons/icon-192.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -41,6 +53,14 @@
   button{font-family:inherit; cursor:pointer;}
   input,select,textarea{font-family:inherit;}
   a{color:inherit;}
+
+  /* ---------- CONFIG BANNER ---------- */
+  #config-banner{
+    display:none; position:fixed; top:0; left:0; right:0; z-index:200;
+    background:var(--accent-2); color:#fff; padding:12px 20px; font-size:13.5px;
+    text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.15);
+  }
+  #config-banner code{background:rgba(255,255,255,0.18); padding:2px 6px; border-radius:4px;}
 
   /* ---------- LOGIN ---------- */
   #login-screen{
@@ -129,6 +149,7 @@
     font-size:14.5px; font-weight:600;
     transition:filter .15s, transform .05s;
   }
+  .btn:disabled{opacity:0.6; cursor:not-allowed;}
   .btn:active{transform:translateY(1px);}
   .btn-primary{background:var(--primary); color:#fff;}
   .btn-primary:hover{filter:brightness(1.08);}
@@ -149,6 +170,7 @@
     font-family:'IBM Plex Mono', monospace; line-height:1.7;
     border-top:1px dashed var(--border);
   }
+  .sync-dot{display:inline-block; width:7px; height:7px; border-radius:50%; background:#4C9A6A; margin-right:6px;}
 
   /* ---------- APP SHELL ---------- */
   #app-screen{display:none; min-height:100vh;}
@@ -306,6 +328,10 @@
 </head>
 <body>
 
+<div id="config-banner">
+  ⚠️ Configure o Firebase antes de usar: edite o arquivo <code>firebase-config.js</code> com as chaves do seu projeto.
+</div>
+
 <!-- ==================== LOGIN ==================== -->
 <div id="login-screen">
   <div class="login-wrap">
@@ -320,7 +346,7 @@
           <div class="tabbook-item"><span class="tabbook-dot"></span> Pedagogo(a) supervisiona tudo, em toda a escola</div>
         </div>
       </div>
-      <div class="login-hint">v1.0 · dados salvos neste navegador</div>
+      <div class="login-hint"><span class="sync-dot"></span>v2.0 · PWA · dados sincronizados no Firebase</div>
     </div>
     <div class="login-form-side">
       <div class="role-tabs" id="role-tabs">
@@ -371,23 +397,51 @@
 
 <div class="toast" id="toast"></div>
 
-<script>
+<script type="module">
 /* ============================================================
-   MONITORAMENTO AEE — estado, persistência e telas
+   MONITORAMENTO AEE — v2.0 (PWA + Firebase)
    ============================================================ */
+import { firebaseConfig } from './firebase-config.js';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import {
+  getFirestore, collection, doc, addDoc, deleteDoc, getDocs, onSnapshot
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+/* Observação: esta versão NÃO usa o Firebase Storage (requer plano Blaze).
+   O envio de conteúdo aceita um link externo (Google Drive, Classroom etc.)
+   em vez de anexo de arquivo. Se um dia quiser habilitar upload de arquivo de
+   verdade, é só voltar a importar getStorage/ref/uploadBytes/getDownloadURL
+   daqui: https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js */
 
-let STATE = {
-  users: [],        // {id, tipo:'pedagogo'|'aee'|'regente', nome, usuario, senha, disciplina, turma, aeeId}
-  index: [],        // metadados de conteúdos (sem o arquivo em si)
-  session: null,    // usuário logado
-  activeTab: null
-};
+/* ---------- Firebase init ---------- */
+const isConfigured = firebaseConfig.apiKey && !firebaseConfig.apiKey.includes('SUA_API_KEY');
+if(!isConfigured){
+  document.getElementById('config-banner').style.display = 'block';
+}
+let app, db;
+try{
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+}catch(e){
+  console.error('Erro ao iniciar Firebase:', e);
+}
+
+/* ---------- Service worker (PWA) ---------- */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(err=>console.warn('SW não registrado:', err));
+  });
+}
+
+/* ---------- Estado ---------- */
+let STATE = { users: [], index: [], session: null, activeTab: null };
+let unsubUsers = null, unsubConteudos = null;
 
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const uid = () => Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4);
 
 function showToast(msg){
+  if(!msg) return;
   const t = $('#toast');
   t.textContent = msg;
   t.classList.add('show');
@@ -395,39 +449,36 @@ function showToast(msg){
   t._timer = setTimeout(()=>t.classList.remove('show'), 2600);
 }
 
-/* ---------- Storage ---------- */
-async function loadData(){
-  try{
-    const u = await window.storage.get('users', true);
-    STATE.users = u ? JSON.parse(u.value) : null;
-  }catch(e){ STATE.users = null; }
-  try{
-    const c = await window.storage.get('conteudo-index', true);
-    STATE.index = c ? JSON.parse(c.value) : [];
-  }catch(e){ STATE.index = []; }
-
-  if(!STATE.users){
-    STATE.users = [
-      {id:uid(), tipo:'pedagogo', nome:'Coordenação Pedagógica', usuario:'pedagogo', senha:'pedagogo123'}
-    ];
-    await saveUsers();
+/* ---------- Firestore: dados em tempo real ---------- */
+async function ensureDefaultPedagogo(){
+  const snap = await getDocs(collection(db,'users'));
+  if(snap.empty){
+    await addDoc(collection(db,'users'), {
+      tipo:'pedagogo', nome:'Coordenação Pedagógica', usuario:'pedagogo', senha:'pedagogo123'
+    });
   }
 }
-async function saveUsers(){
-  try{ await window.storage.set('users', JSON.stringify(STATE.users), true); }
-  catch(e){ showToast('Erro ao salvar dados. Tente novamente.'); }
-}
-async function saveIndex(){
-  try{ await window.storage.set('conteudo-index', JSON.stringify(STATE.index), true); }
-  catch(e){ showToast('Erro ao salvar dados. Tente novamente.'); }
-}
-async function saveFile(id, dataUrl){
-  try{ await window.storage.set('conteudo-file:'+id, dataUrl, true); return true; }
-  catch(e){ showToast('Arquivo muito grande para salvar (máx. ~2MB).'); return false; }
-}
-async function getFile(id){
-  try{ const f = await window.storage.get('conteudo-file:'+id, true); return f ? f.value : null; }
-  catch(e){ return null; }
+
+function attachListeners(){
+  unsubUsers = onSnapshot(collection(db,'users'), snap=>{
+    STATE.users = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    if(STATE.session){
+      const fresh = STATE.users.find(u=>u.id===STATE.session.id);
+      if(fresh) STATE.session = fresh; else { logout(); return; }
+      render();
+    }
+  }, err=>{
+    console.error(err);
+    showToast('Erro de conexão com o Firebase (usuários).');
+  });
+
+  unsubConteudos = onSnapshot(collection(db,'conteudos'), snap=>{
+    STATE.index = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    if(STATE.session) render();
+  }, err=>{
+    console.error(err);
+    showToast('Erro de conexão com o Firebase (conteúdos).');
+  });
 }
 
 /* ---------- Login ---------- */
@@ -454,6 +505,7 @@ function initLoginUI(){
 }
 
 function doLogin(){
+  if(!isConfigured){ showToast('Configure o firebase-config.js antes de entrar.'); return; }
   const usuario = $('#login-user').value.trim();
   const senha = $('#login-pass').value;
   const found = STATE.users.find(u => u.tipo===selectedRole && u.usuario.toLowerCase()===usuario.toLowerCase() && u.senha===senha);
@@ -524,6 +576,7 @@ function enterApp(){
 
 function render(){
   const u = STATE.session;
+  if(!u) return;
   if(u.tipo==='pedagogo') renderPedagogo();
   else if(u.tipo==='aee') renderAEE();
   else if(u.tipo==='regente') renderRegente();
@@ -564,13 +617,13 @@ function renderPedagogo(){
   if(tab==='aees'){
     html += `<div class="panel"><div class="panel-head">
         <h3>Professores AEE cadastrados</h3>
-        <button class="btn btn-accent btn-sm" onclick="openNewAeeModal()">+ Cadastrar Professor AEE</button>
+        <button class="btn btn-accent btn-sm" id="btn-open-aee">+ Cadastrar Professor AEE</button>
       </div>`;
     html += aees.length ? `<table><thead><tr><th>Nome</th><th>Usuário</th><th>Regentes vinculados</th><th></th></tr></thead><tbody>` +
       aees.map(a=>{
         const count = regentes.filter(r=>r.aeeId===a.id).length;
         return `<tr><td><span class="tag tag-aee">AEE</span> ${a.nome}</td><td class="mono">${a.usuario}</td><td>${count}</td>
-          <td class="row-actions"><button class="btn btn-danger btn-sm" onclick="removeUser('${a.id}')">Remover</button></td></tr>`;
+          <td class="row-actions"><button class="btn btn-danger btn-sm" data-remove="${a.id}">Remover</button></td></tr>`;
       }).join('') + `</tbody></table>` : `<div class="empty-state">Nenhum professor AEE cadastrado ainda. Cadastre o primeiro acesso acima.</div>`;
     html += `</div>`;
   }
@@ -581,7 +634,7 @@ function renderPedagogo(){
       regentes.map(r=>{
         const aeeName = (STATE.users.find(u=>u.id===r.aeeId)||{}).nome || '—';
         return `<tr><td><span class="tag tag-regente">Regente</span> ${r.nome}</td><td>${r.disciplina}</td><td>${r.turma}</td><td>${aeeName}</td><td class="mono">${r.usuario}</td>
-          <td class="row-actions"><button class="btn btn-danger btn-sm" onclick="removeUser('${r.id}')">Remover</button></td></tr>`;
+          <td class="row-actions"><button class="btn btn-danger btn-sm" data-remove="${r.id}">Remover</button></td></tr>`;
       }).join('') + `</tbody></table>` : `<div class="empty-state">Nenhum professor regente cadastrado ainda.</div>`;
     html += `</div>`;
   }
@@ -591,6 +644,9 @@ function renderPedagogo(){
   }
 
   main.innerHTML = html;
+
+  if(tab==='aees'){ $('#btn-open-aee').addEventListener('click', openNewAeeModal); }
+  $$('[data-remove]').forEach(btn=>btn.addEventListener('click', ()=>removeUser(btn.dataset.remove)));
 }
 
 function openNewAeeModal(){
@@ -601,10 +657,12 @@ function openNewAeeModal(){
     <div class="field"><label>Usuário de acesso</label><input id="m-usuario" placeholder="Ex: maria.aee"></div>
     <div class="field"><label>Senha</label><input id="m-senha" type="text" placeholder="Defina uma senha"></div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveNewAee()">Cadastrar</button>
+      <button class="btn btn-ghost" id="m-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="m-save">Cadastrar</button>
     </div>
   `);
+  $('#m-cancel').addEventListener('click', closeModal);
+  $('#m-save').addEventListener('click', saveNewAee);
 }
 async function saveNewAee(){
   const nome = $('#m-nome').value.trim();
@@ -612,17 +670,18 @@ async function saveNewAee(){
   const senha = $('#m-senha').value;
   if(!nome||!usuario||!senha){ showToast('Preencha todos os campos.'); return; }
   if(STATE.users.some(u=>u.usuario.toLowerCase()===usuario.toLowerCase())){ showToast('Esse usuário já existe.'); return; }
-  STATE.users.push({id:uid(), tipo:'aee', nome, usuario, senha});
-  await saveUsers();
-  closeModal(); showToast('Professor(a) AEE cadastrado(a).'); render();
+  try{
+    await addDoc(collection(db,'users'), {tipo:'aee', nome, usuario, senha});
+    closeModal(); showToast('Professor(a) AEE cadastrado(a).');
+  }catch(e){ console.error(e); showToast('Erro ao salvar no Firebase.'); }
 }
 
 async function removeUser(id){
   if(!confirm('Remover este cadastro? Essa ação não pode ser desfeita.')) return;
-  STATE.users = STATE.users.filter(u=>u.id!==id);
-  await saveUsers();
-  showToast('Cadastro removido.');
-  render();
+  try{
+    await deleteDoc(doc(db,'users', id));
+    showToast('Cadastro removido.');
+  }catch(e){ console.error(e); showToast('Erro ao remover no Firebase.'); }
 }
 
 /* ============================================================
@@ -639,11 +698,11 @@ function renderAEE(){
   if(tab==='regentes-aee'){
     html += `<div class="panel"><div class="panel-head">
         <h3>Professores regentes que trabalham com você</h3>
-        <button class="btn btn-accent btn-sm" onclick="openNewRegenteModal()">+ Inserir professor regente</button>
+        <button class="btn btn-accent btn-sm" id="btn-open-regente">+ Inserir professor regente</button>
       </div>`;
     html += meusRegentes.length ? `<table><thead><tr><th>Nome</th><th>Disciplina</th><th>Turma</th><th>Usuário</th><th></th></tr></thead><tbody>` +
       meusRegentes.map(r=>`<tr><td>${r.nome}</td><td>${r.disciplina}</td><td>${r.turma}</td><td class="mono">${r.usuario}</td>
-        <td class="row-actions"><button class="btn btn-danger btn-sm" onclick="removeUser('${r.id}')">Remover</button></td></tr>`).join('')
+        <td class="row-actions"><button class="btn btn-danger btn-sm" data-remove="${r.id}">Remover</button></td></tr>`).join('')
       + `</tbody></table>` : `<div class="empty-state">Você ainda não inseriu nenhum professor regente. Clique em "Inserir professor regente" para escolher a disciplina e a turma.</div>`;
     html += `</div>`;
   }
@@ -655,6 +714,9 @@ function renderAEE(){
   }
 
   main.innerHTML = html;
+
+  if(tab==='regentes-aee'){ $('#btn-open-regente').addEventListener('click', openNewRegenteModal); }
+  $$('[data-remove]').forEach(btn=>btn.addEventListener('click', ()=>removeUser(btn.dataset.remove)));
 }
 
 function openNewRegenteModal(){
@@ -673,10 +735,12 @@ function openNewRegenteModal(){
     <div class="field"><label>Usuário de acesso</label><input id="m-usuario" placeholder="Ex: joao.regente"></div>
     <div class="field"><label>Senha</label><input id="m-senha" type="text" placeholder="Defina uma senha"></div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveNewRegente()">Inserir professor</button>
+      <button class="btn btn-ghost" id="m-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="m-save">Inserir professor</button>
     </div>
   `);
+  $('#m-cancel').addEventListener('click', closeModal);
+  $('#m-save').addEventListener('click', saveNewRegente);
 }
 async function saveNewRegente(){
   const nome = $('#m-nome').value.trim();
@@ -686,9 +750,10 @@ async function saveNewRegente(){
   const senha = $('#m-senha').value;
   if(!nome||!turma||!usuario||!senha){ showToast('Preencha todos os campos.'); return; }
   if(STATE.users.some(u=>u.usuario.toLowerCase()===usuario.toLowerCase())){ showToast('Esse usuário já existe.'); return; }
-  STATE.users.push({id:uid(), tipo:'regente', nome, disciplina, turma, usuario, senha, aeeId: STATE.session.id});
-  await saveUsers();
-  closeModal(); showToast('Professor regente inserido.'); render();
+  try{
+    await addDoc(collection(db,'users'), {tipo:'regente', nome, disciplina, turma, usuario, senha, aeeId: STATE.session.id});
+    closeModal(); showToast('Professor regente inserido.');
+  }catch(e){ console.error(e); showToast('Erro ao salvar no Firebase.'); }
 }
 
 /* ============================================================
@@ -718,13 +783,10 @@ function renderRegente(){
       <div class="field"><label>Título / tema da semana</label><input id="f-titulo" placeholder="Ex: Frações — introdução"></div>
       <div class="field"><label>Conteúdo aplicado (descrição)</label><textarea id="f-desc" rows="4" placeholder="Descreva o conteúdo, atividades e observações relevantes para o AEE"></textarea></div>
       <div class="field">
-        <label>Anexar arquivo (opcional — até 2MB)</label>
-        <div class="file-drop">
-          <input type="file" id="f-arquivo">
-          <div id="f-arquivo-chip"></div>
-        </div>
+        <label>Link do material (opcional)</label>
+        <input type="url" id="f-link" placeholder="Cole aqui o link do Google Drive, Classroom, foto no Google Fotos etc.">
       </div>
-      <button class="btn btn-primary" onclick="submitConteudo()">Enviar para o AEE</button>
+      <button class="btn btn-primary" id="btn-enviar-conteudo">Enviar para o AEE</button>
     </div>`;
   }
 
@@ -736,9 +798,9 @@ function renderRegente(){
         <div class="folder-info">
           <div class="title">${c.titulo}</div>
           <div class="desc">${c.descricao||''}</div>
-          <div class="meta">enviado em ${formatDateTime(c.dataEnvio)} ${c.fileName ? '· 📎 '+c.fileName : ''}</div>
+          <div class="meta">enviado em ${formatDateTime(c.dataEnvio)} ${c.fileURL ? '· 🔗 com link' : ''}</div>
         </div>
-        ${c.fileName ? `<button class="btn btn-ghost btn-sm" onclick="downloadFile('${c.id}')">Baixar</button>` : ''}
+        ${c.fileURL ? `<button class="btn btn-ghost btn-sm" data-download="${c.id}">Abrir link</button>` : ''}
       </div>`).join('') + `</div>` : `<div class="empty-state">Você ainda não enviou nenhum conteúdo.</div>`;
     html += `</div>`;
   }
@@ -747,74 +809,48 @@ function renderRegente(){
 
   if(tab==='enviar'){
     $('#f-semana').valueAsDate = mondayOfCurrentWeek();
-    $('#f-arquivo').addEventListener('change', e=>{
-      const f = e.target.files[0];
-      const chip = $('#f-arquivo-chip');
-      if(!f){ chip.innerHTML=''; return; }
-      if(f.size > 2*1024*1024){
-        chip.innerHTML = `<span class="file-chip" style="background:#F3E4E0;color:#B5533C;">Arquivo maior que 2MB — escolha outro</span>`;
-        e.target.value='';
-        return;
-      }
-      chip.innerHTML = `<span class="file-chip">📎 ${f.name}</span>`;
-    });
+    $('#btn-enviar-conteudo').addEventListener('click', submitConteudo);
   }
+  $$('[data-download]').forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
 }
 
 async function submitConteudo(){
   const semana = $('#f-semana').value;
   const titulo = $('#f-titulo').value.trim();
   const descricao = $('#f-desc').value.trim();
-  const fileInput = $('#f-arquivo');
-  const file = fileInput.files[0];
+  const link = $('#f-link').value.trim();
+  const btn = $('#btn-enviar-conteudo');
 
   if(!semana || !titulo || !descricao){ showToast('Preencha semana, título e descrição.'); return; }
+  if(link && !/^https?:\/\//i.test(link)){ showToast('O link precisa começar com http:// ou https://'); return; }
 
   const u = STATE.session;
-  const id = uid();
-  const meta = {
-    id, regenteId:u.id, regenteNome:u.nome, aeeId:u.aeeId,
-    disciplina:u.disciplina, turma:u.turma,
-    semana, titulo, descricao,
-    fileName: file ? file.name : null,
-    fileType: file ? file.type : null,
-    dataEnvio: new Date().toISOString()
-  };
+  btn.disabled = true; btn.textContent = 'Enviando...';
 
-  if(file){
-    const dataUrl = await readFileAsDataUrl(file);
-    const ok = await saveFile(id, dataUrl);
-    if(!ok) return;
+  try{
+    const meta = {
+      regenteId:u.id, regenteNome:u.nome, aeeId:u.aeeId,
+      disciplina:u.disciplina, turma:u.turma,
+      semana, titulo, descricao,
+      fileURL: link || null,
+      dataEnvio: new Date().toISOString()
+    };
+    await addDoc(collection(db,'conteudos'), meta);
+    showToast('Conteúdo enviado ao AEE!');
+    STATE.activeTab = 'meus-envios';
+    $$('.nav-item').forEach(x=>x.classList.toggle('active', x.dataset.tab==='meus-envios'));
+    render();
+  }catch(e){
+    console.error(e);
+    showToast('Erro ao enviar. Verifique sua conexão e tente novamente.');
+    btn.disabled = false; btn.textContent = 'Enviar para o AEE';
   }
-
-  STATE.index.push(meta);
-  await saveIndex();
-  showToast('Conteúdo enviado ao AEE!');
-  STATE.activeTab = 'meus-envios';
-  $$('.nav-item').forEach(x=>x.classList.toggle('active', x.dataset.tab==='meus-envios'));
-  render();
 }
 
-function readFileAsDataUrl(file){
-  return new Promise((resolve,reject)=>{
-    const r = new FileReader();
-    r.onload = ()=>resolve(r.result);
-    r.onerror = ()=>reject(new Error('Falha ao ler arquivo'));
-    r.readAsDataURL(file);
-  });
-}
-
-async function downloadFile(id){
+function downloadFile(id){
   const item = STATE.index.find(c=>c.id===id);
-  if(!item || !item.fileName){ return; }
-  const dataUrl = await getFile(id);
-  if(!dataUrl){ showToast('Arquivo não encontrado.'); return; }
-  const a = document.createElement('a');
-  a.href = dataUrl;
-  a.download = item.fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  if(!item || !item.fileURL) return;
+  window.open(item.fileURL, '_blank');
 }
 
 /* ============================================================
@@ -842,10 +878,15 @@ function renderConteudoFiltersAndTable(list, showTurmaFilter){
         (!q || c.titulo.toLowerCase().includes(q) || c.regenteNome.toLowerCase().includes(q))
       ).sort(sortByDateDesc);
       $('#conteudo-table-wrap').innerHTML = renderConteudoTable(filtered);
+      $$('[data-download]').forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
     };
     $('#filt-turma').addEventListener('change', apply);
     $('#filt-disciplina').addEventListener('change', apply);
     $('#filt-busca').addEventListener('input', apply);
+  }, 0);
+
+  setTimeout(()=>{
+    $$('[data-download]').forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
   }, 0);
 
   return html;
@@ -862,7 +903,7 @@ function renderConteudoTable(list, compact){
         <td>${c.regenteNome}</td>
         <td>${c.turma}</td>
         <td>${c.disciplina}</td>
-        <td>${c.fileName ? `<button class="btn btn-ghost btn-sm" onclick="downloadFile('${c.id}')">Baixar 📎</button>` : ''}</td>
+        <td>${c.fileURL ? `<button class="btn btn-ghost btn-sm" data-download="${c.id}">Abrir link 🔗</button>` : ''}</td>
       </tr>`).join('') +
     `</tbody></table>`;
 }
@@ -879,7 +920,6 @@ function mondayOfCurrentWeek(){
 function isThisWeek(iso){
   if(!iso) return false;
   const d = new Date(iso);
-  const now = new Date();
   const start = mondayOfCurrentWeek();
   start.setHours(0,0,0,0);
   const end = new Date(start); end.setDate(end.getDate()+7);
@@ -889,7 +929,21 @@ function isThisWeek(iso){
 /* ---------- init ---------- */
 (async function init(){
   initLoginUI();
-  await loadData();
+  if(!isConfigured){
+    showToast('Configure o firebase-config.js para começar a usar o app.');
+    return;
+  }
+  $('#btn-login').disabled = true;
+  $('#btn-login').textContent = 'Conectando...';
+  try{
+    await ensureDefaultPedagogo();
+    attachListeners();
+  }catch(e){
+    console.error(e);
+    showToast('Não foi possível conectar ao Firebase. Confira as regras do Firestore.');
+  }
+  $('#btn-login').disabled = false;
+  $('#btn-login').textContent = 'Entrar';
 })();
 </script>
 </body>
