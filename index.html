@@ -1170,9 +1170,10 @@ function openConteudoModal(id){
     <div class="conteudo-desc">${c.descricao || 'Sem descrição.'}</div>
     <div class="modal-actions">
       ${anexoBtn}
-      <button class="btn btn-ghost" onclick="closeModal()">Fechar</button>
+      <button class="btn btn-ghost" id="btn-fechar-conteudo-modal">Fechar</button>
     </div>
   `, true);
+  $('#btn-fechar-conteudo-modal').addEventListener('click', closeModal);
   $$('[data-download]', $('#modal-body')).forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
 }
 
