@@ -409,6 +409,7 @@
    MONITORAMENTO AEE — v2.0 (PWA + Firebase)
    ============================================================ */
 import { firebaseConfig } from './firebase-config.js';
+import { CURRICULO_ESTRUTURADO } from './curriculo-data.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
   getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, getDocs, onSnapshot
@@ -857,8 +858,38 @@ function renderRegente(){
     </div>`;
 
   if(tab==='enviar'){
+    const temCurriculo = !!CURRICULO_ESTRUTURADO[u.disciplina];
     html += `<div class="panel">
       <div class="panel-head"><h3>Enviar conteúdo da semana</h3></div>
+      ${temCurriculo ? `
+      <div class="role-tabs" id="modo-tabs" style="margin-bottom:22px;">
+        <button class="role-tab active" data-modo="livre">✍️ Escrever livremente</button>
+        <button class="role-tab" data-modo="curriculo">📚 Currículo Estruturado</button>
+      </div>` : ''}
+
+      <div id="bloco-curriculo" style="display:none; margin-bottom:6px;">
+        <div class="field"><label>Ano</label>
+          <select id="cur-ano">
+            <option value="">Selecione o ano</option>
+            <option value="6">6º ano</option>
+            <option value="7">7º ano</option>
+            <option value="8">8º ano</option>
+            <option value="9">9º ano</option>
+          </select>
+        </div>
+        <div class="field"><label>Trimestre</label>
+          <select id="cur-trimestre" disabled>
+            <option value="">Selecione o ano primeiro</option>
+          </select>
+        </div>
+        <div class="field"><label>Habilidade</label>
+          <select id="cur-habilidade" disabled>
+            <option value="">Selecione o trimestre primeiro</option>
+          </select>
+        </div>
+        <div class="empty-state" id="cur-preview" style="text-align:left; display:none;"></div>
+      </div>
+
       <div class="field"><label>Semana (início)</label><input type="date" id="f-semana"></div>
       <div class="field"><label>Título / tema da semana</label><input id="f-titulo" placeholder="Ex: Frações — introdução"></div>
       <div class="field"><label>Conteúdo aplicado (descrição)</label><textarea id="f-desc" rows="4" placeholder="Descreva o conteúdo, atividades e observações relevantes para o AEE"></textarea></div>
@@ -908,8 +939,68 @@ function renderRegente(){
       chip.innerHTML = `<span class="file-chip">📎 ${f.name}</span>`;
     });
     $('#btn-enviar-conteudo').addEventListener('click', submitConteudo);
+    initCurriculoEstruturado(u.disciplina);
   }
   $$('[data-download]').forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
+}
+
+function initCurriculoEstruturado(disciplina){
+  const lista = CURRICULO_ESTRUTURADO[disciplina];
+  if(!lista) return;
+
+  const tabsWrap = $('#modo-tabs');
+  const blocoCur = $('#bloco-curriculo');
+  const selAno = $('#cur-ano');
+  const selTri = $('#cur-trimestre');
+  const selHab = $('#cur-habilidade');
+  const preview = $('#cur-preview');
+  const fTitulo = $('#f-titulo');
+  const fDesc = $('#f-desc');
+
+  if(tabsWrap){
+    $$('.role-tab', tabsWrap).forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        $$('.role-tab', tabsWrap).forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        blocoCur.style.display = btn.dataset.modo === 'curriculo' ? 'block' : 'none';
+      });
+    });
+  }
+
+  selAno.addEventListener('change', ()=>{
+    const ano = selAno.value;
+    selHab.innerHTML = `<option value="">Selecione o trimestre primeiro</option>`;
+    selHab.disabled = true;
+    preview.style.display = 'none';
+    if(!ano){ selTri.disabled = true; selTri.innerHTML = `<option value="">Selecione o ano primeiro</option>`; return; }
+    selTri.disabled = false;
+    selTri.innerHTML = `<option value="">Selecione o trimestre</option>
+      <option value="1">1º trimestre</option>
+      <option value="2">2º trimestre</option>
+      <option value="3">3º trimestre</option>`;
+  });
+
+  selTri.addEventListener('change', ()=>{
+    const ano = selAno.value, tri = selTri.value;
+    preview.style.display = 'none';
+    if(!tri){ selHab.disabled = true; selHab.innerHTML = `<option value="">Selecione o trimestre primeiro</option>`; return; }
+    const itens = lista.filter(x=>x.a===ano && x.t===tri);
+    selHab.disabled = false;
+    selHab.innerHTML = `<option value="">Selecione a habilidade (${itens.length})</option>` +
+      itens.map((x,i)=>`<option value="${i}">${x.c} — ${(x.o||x.e||'').slice(0,70)}</option>`).join('');
+    selHab._itens = itens;
+  });
+
+  selHab.addEventListener('change', ()=>{
+    const itens = selHab._itens || [];
+    const item = itens[selHab.value];
+    if(!item){ preview.style.display = 'none'; return; }
+    const tituloBase = item.o || item.e || 'Habilidade do currículo';
+    fTitulo.value = `${item.c} — ${tituloBase}`;
+    fDesc.value = item.h + (item.o ? `\n\nObjeto de conhecimento: ${item.o}` : '');
+    preview.style.display = 'block';
+    preview.innerHTML = `<strong>${item.c}</strong>${item.e ? ' · '+item.e : ''}<br>${item.h}`;
+  });
 }
 
 async function submitConteudo(){

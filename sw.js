@@ -4,11 +4,13 @@
    interceptadas: sempre vão direto para a rede, pois os dados precisam
    estar sempre atualizados. */
 
-const CACHE_NAME = 'monitoramento-aee-v1';
+const CACHE_NAME = 'monitoramento-aee-v2';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.json',
+  './firebase-config.js',
+  './curriculo-data.js',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
