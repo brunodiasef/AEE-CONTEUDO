@@ -223,6 +223,12 @@
   }
   .stat-card-filter:hover{border-color:var(--primary);}
   .stat-card-filter:active{transform:translateY(1px);}
+  .btn-title-toggle{
+    background:none; border:none; color:var(--primary); font-weight:600; font-size:13px;
+    cursor:pointer; padding:0; font-family:inherit; text-align:left;
+  }
+  .btn-title-toggle:hover{text-decoration:underline;}
+  .titulo-content{margin-top:6px;}
 
   .panel{
     background:var(--card); border:1px solid var(--border); border-radius:12px;
@@ -1101,7 +1107,6 @@ function renderConteudoFiltersAndTable(list, showTurmaFilter){
   const filtersHtml = `<div class="filters-row">
       <select id="filt-turma"><option value="">Todas as turmas</option>${turmas.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
       <select id="filt-disciplina"><option value="">Todas as disciplinas</option>${disciplinas.map(d=>`<option value="${d}">${d}</option>`).join('')}</select>
-      <input type="text" id="filt-busca" placeholder="Buscar por título ou professor...">
     </div>`;
   const html = `<div class="panel">
       <div class="panel-head"><h3>Conteúdos enviados</h3><div class="count">${list.length} registro(s)</div></div>
@@ -1111,34 +1116,48 @@ function renderConteudoFiltersAndTable(list, showTurmaFilter){
 
   setTimeout(()=>{
     const apply = ()=>{
-      const t = $('#filt-turma').value, d = $('#filt-disciplina').value, q = $('#filt-busca').value.toLowerCase();
+      const t = $('#filt-turma').value, d = $('#filt-disciplina').value;
       const filtered = list.filter(c =>
-        (!t || c.turma===t) && (!d || c.disciplina===d) &&
-        (!q || c.titulo.toLowerCase().includes(q) || c.regenteNome.toLowerCase().includes(q))
+        (!t || c.turma===t) && (!d || c.disciplina===d)
       ).sort(sortByDateDesc);
       $('#conteudo-table-wrap').innerHTML = renderConteudoTable(filtered);
-      $$('[data-download]').forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
+      wireConteudoTableEvents();
     };
     $('#filt-turma').addEventListener('change', apply);
     $('#filt-disciplina').addEventListener('change', apply);
-    $('#filt-busca').addEventListener('input', apply);
   }, 0);
 
-  setTimeout(()=>{
-    $$('[data-download]').forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
-  }, 0);
+  setTimeout(wireConteudoTableEvents, 0);
 
   return html;
 }
 
-function renderConteudoTable(list, compact){
+function wireConteudoTableEvents(){
+  $$('[data-download]').forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
+  $$('[data-toggle-titulo]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const id = btn.dataset.toggleTitulo;
+    const content = $('#titulo-'+id);
+    if(!content) return;
+    const aberto = content.style.display !== 'none';
+    content.style.display = aberto ? 'none' : 'block';
+    btn.textContent = aberto ? '▸ Ver conteúdo' : '▾ Ocultar conteúdo';
+  }));
+}
+
+function renderConteudoTable(list){
   if(!list.length) return `<div class="empty-state">Nenhum conteúdo encontrado.</div>`;
   return `<table><thead><tr>
       <th>Semana</th><th>Título</th><th>Professor</th><th>Turma</th><th>Disciplina</th><th></th>
     </tr></thead><tbody>` +
     list.map(c=>`<tr>
         <td class="mono">${formatDate(c.semana)}</td>
-        <td><strong>${c.titulo}</strong>${!compact ? `<div style="color:var(--muted);font-size:12.5px;margin-top:3px;">${c.descricao||''}</div>` : ''}</td>
+        <td>
+          <button class="btn-title-toggle" data-toggle-titulo="${c.id}">▸ Ver conteúdo</button>
+          <div class="titulo-content" id="titulo-${c.id}" style="display:none;">
+            <strong>${c.titulo}</strong>
+            ${c.descricao ? `<div style="color:var(--muted);font-size:12.5px;margin-top:3px;">${c.descricao}</div>` : ''}
+          </div>
+        </td>
         <td>${c.regenteNome}</td>
         <td>${c.turma}</td>
         <td>${c.disciplina}</td>
