@@ -217,6 +217,12 @@
   }
   .stat-card .num{font-family:'Fraunces', serif; font-size:30px; font-weight:600; color:var(--primary-dark);}
   .stat-card .label{font-size:12.5px; color:var(--muted); margin-top:4px; text-transform:uppercase; letter-spacing:0.04em;}
+  .stat-card-filter{
+    text-align:left; width:100%; cursor:pointer; font-family:inherit;
+    transition:border-color .15s, transform .05s;
+  }
+  .stat-card-filter:hover{border-color:var(--primary);}
+  .stat-card-filter:active{transform:translateY(1px);}
 
   .panel{
     background:var(--card); border:1px solid var(--border); border-radius:12px;
@@ -441,7 +447,7 @@ if('serviceWorker' in navigator){
 }
 
 /* ---------- Estado ---------- */
-let STATE = { users: [], index: [], session: null, activeTab: null };
+let STATE = { users: [], index: [], session: null, activeTab: null, pedagogoFiltroSemana: false };
 let unsubUsers = null, unsubConteudos = null;
 
 const $ = (sel, root=document) => root.querySelector(sel);
@@ -617,19 +623,16 @@ function renderPedagogo(){
   const aees = STATE.users.filter(u=>u.tipo==='aee');
   const regentes = STATE.users.filter(u=>u.tipo==='regente');
 
-  let html = `<div class="main-header"><div><h1>Painel da Coordenação</h1><div class="sub">Visão completa da rede de apoio AEE</div></div></div>`;
+  let html = `<div class="main-header"><div><h1>Painel Pedagógico</h1><div class="sub">Visão completa da rede de apoio AEE</div></div></div>`;
 
   if(tab==='visao'){
     const semanaAtual = STATE.index.filter(c=> isThisWeek(c.dataEnvio)).length;
     html += `<div class="cards-row">
-      <div class="stat-card"><div class="num">${aees.length}</div><div class="label">Professores AEE</div></div>
-      <div class="stat-card"><div class="num">${regentes.length}</div><div class="label">Professores Regentes</div></div>
-      <div class="stat-card"><div class="num">${STATE.index.length}</div><div class="label">Conteúdos enviados (total)</div></div>
-      <div class="stat-card"><div class="num">${semanaAtual}</div><div class="label">Enviados nesta semana</div></div>
+      <button class="stat-card stat-card-filter" data-goto="aees"><div class="num">${aees.length}</div><div class="label">Professores AEE</div></button>
+      <button class="stat-card stat-card-filter" data-goto="regentes"><div class="num">${regentes.length}</div><div class="label">Professores Regentes</div></button>
+      <button class="stat-card stat-card-filter" data-goto="conteudos"><div class="num">${STATE.index.length}</div><div class="label">Conteúdos enviados (total)</div></button>
+      <button class="stat-card stat-card-filter" data-goto="conteudos" data-semana="1"><div class="num">${semanaAtual}</div><div class="label">Enviados nesta semana</div></button>
     </div>`;
-    html += `<div class="panel"><div class="panel-head"><h3>Últimos conteúdos recebidos</h3></div>`;
-    html += renderConteudoTable(STATE.index.slice().sort(sortByDateDesc).slice(0,8), true);
-    html += `</div>`;
   }
 
   if(tab==='aees'){
@@ -658,7 +661,13 @@ function renderPedagogo(){
   }
 
   if(tab==='conteudos'){
-    html += renderConteudoFiltersAndTable(STATE.index, true);
+    if(STATE.pedagogoFiltroSemana){
+      html += `<div class="filters-row" style="margin-bottom:-6px;">
+        <span class="tag tag-aee" style="cursor:pointer;" id="btn-limpar-filtro-semana">Filtrando: só esta semana ✕</span>
+      </div>`;
+    }
+    const listaBase = STATE.pedagogoFiltroSemana ? STATE.index.filter(c=>isThisWeek(c.dataEnvio)) : STATE.index;
+    html += renderConteudoFiltersAndTable(listaBase, true);
   }
 
   main.innerHTML = html;
@@ -667,6 +676,22 @@ function renderPedagogo(){
   $$('[data-remove]').forEach(btn=>btn.addEventListener('click', ()=>removeUser(btn.dataset.remove)));
   $$('[data-edit-aee]').forEach(btn=>btn.addEventListener('click', ()=>openEditAeeModal(btn.dataset.editAee)));
   $$('[data-edit-regente]').forEach(btn=>btn.addEventListener('click', ()=>openEditRegenteModal(btn.dataset.editRegente)));
+
+  $$('[data-goto]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      STATE.pedagogoFiltroSemana = !!btn.dataset.semana;
+      STATE.activeTab = btn.dataset.goto;
+      $$('.nav-item').forEach(x=>x.classList.toggle('active', x.dataset.tab===btn.dataset.goto));
+      render();
+    });
+  });
+  const btnLimpar = $('#btn-limpar-filtro-semana');
+  if(btnLimpar){
+    btnLimpar.addEventListener('click', ()=>{
+      STATE.pedagogoFiltroSemana = false;
+      render();
+    });
+  }
 }
 
 function openNewAeeModal(){
