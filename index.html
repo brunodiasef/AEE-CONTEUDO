@@ -290,6 +290,20 @@
     background:#fff; border-radius:14px; padding:30px 30px; width:100%; max-width:480px;
     box-shadow:0 20px 50px rgba(0,0,0,0.25); max-height:90vh; overflow-y:auto;
   }
+  .modal-large{
+    max-width:920px; width:94vw; max-height:88vh;
+  }
+  .modal-large .conteudo-meta{
+    display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 20px;
+  }
+  .modal-large .conteudo-meta span{
+    background:var(--bg-alt); color:var(--primary-dark); padding:5px 12px; border-radius:20px;
+    font-size:12.5px; font-family:'IBM Plex Mono', monospace; font-weight:600;
+  }
+  .modal-large .conteudo-desc{
+    font-size:15px; line-height:1.7; color:var(--ink); white-space:pre-wrap;
+    background:#FBFAF6; border:1px solid var(--border); border-radius:10px; padding:18px 20px;
+  }
   .modal h3{font-size:19px; margin-bottom:4px;}
   .modal .modal-sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
   .modal-actions{display:flex; gap:10px; margin-top:22px;}
@@ -613,8 +627,10 @@ function render(){
 }
 
 /* ---------- Modal helper ---------- */
-function openModal(html){
-  $('#modal-body').innerHTML = html;
+function openModal(html, large){
+  const body = $('#modal-body');
+  body.innerHTML = html;
+  body.classList.toggle('modal-large', !!large);
   $('#modal-overlay').classList.add('open');
 }
 function closeModal(){ $('#modal-overlay').classList.remove('open'); }
@@ -1134,14 +1150,30 @@ function renderConteudoFiltersAndTable(list, showTurmaFilter){
 
 function wireConteudoTableEvents(){
   $$('[data-download]').forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
-  $$('[data-toggle-titulo]').forEach(btn=>btn.addEventListener('click', ()=>{
-    const id = btn.dataset.toggleTitulo;
-    const content = $('#titulo-'+id);
-    if(!content) return;
-    const aberto = content.style.display !== 'none';
-    content.style.display = aberto ? 'none' : 'block';
-    btn.textContent = aberto ? '▸ Ver conteúdo' : '▾ Ocultar conteúdo';
-  }));
+  $$('[data-toggle-titulo]').forEach(btn=>btn.addEventListener('click', ()=>openConteudoModal(btn.dataset.toggleTitulo)));
+}
+
+function openConteudoModal(id){
+  const c = STATE.index.find(x=>x.id===id);
+  if(!c) return;
+  const anexoBtn = c.fileURL
+    ? `<button class="btn btn-ghost btn-sm" data-download="${c.id}">Abrir link 🔗</button>`
+    : (c.fileData ? `<button class="btn btn-ghost btn-sm" data-download="${c.id}">Baixar anexo 📎</button>` : '');
+  openModal(`
+    <h3>${c.titulo}</h3>
+    <div class="conteudo-meta">
+      <span>📅 Semana de ${formatDate(c.semana)}</span>
+      <span>👤 ${c.regenteNome}</span>
+      <span>🏫 Turma ${c.turma}</span>
+      <span>📘 ${c.disciplina}</span>
+    </div>
+    <div class="conteudo-desc">${c.descricao || 'Sem descrição.'}</div>
+    <div class="modal-actions">
+      ${anexoBtn}
+      <button class="btn btn-ghost" onclick="closeModal()">Fechar</button>
+    </div>
+  `, true);
+  $$('[data-download]', $('#modal-body')).forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
 }
 
 function renderConteudoTable(list){
@@ -1151,13 +1183,7 @@ function renderConteudoTable(list){
     </tr></thead><tbody>` +
     list.map(c=>`<tr>
         <td class="mono">${formatDate(c.semana)}</td>
-        <td>
-          <button class="btn-title-toggle" data-toggle-titulo="${c.id}">▸ Ver conteúdo</button>
-          <div class="titulo-content" id="titulo-${c.id}" style="display:none;">
-            <strong>${c.titulo}</strong>
-            ${c.descricao ? `<div style="color:var(--muted);font-size:12.5px;margin-top:3px;">${c.descricao}</div>` : ''}
-          </div>
-        </td>
+        <td><button class="btn-title-toggle" data-toggle-titulo="${c.id}">▸ Ver conteúdo</button></td>
         <td>${c.regenteNome}</td>
         <td>${c.turma}</td>
         <td>${c.disciplina}</td>

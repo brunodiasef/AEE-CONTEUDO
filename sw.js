@@ -4,7 +4,7 @@
    interceptadas: sempre vão direto para a rede, pois os dados precisam
    estar sempre atualizados. */
 
-const CACHE_NAME = 'monitoramento-aee-v4';
+const CACHE_NAME = 'monitoramento-aee-v5';
 const APP_SHELL = [
   './',
   './index.html',
