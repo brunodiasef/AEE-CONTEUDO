@@ -302,8 +302,15 @@
   }
   .modal-large .conteudo-desc{
     font-size:15px; line-height:1.7; color:var(--ink); white-space:pre-wrap;
-    background:#FBFAF6; border:1px solid var(--border); border-radius:10px; padding:18px 20px;
+    background:#FBFAF6; border:1px solid var(--border); border-radius:10px; padding:36px 20px 18px;
+    position:relative;
   }
+  .btn-copy-desc{
+    position:absolute; top:10px; right:10px; background:#fff; border:1px solid var(--border);
+    border-radius:6px; padding:4px 9px; font-size:11px; color:var(--muted); cursor:pointer;
+    font-family:'IBM Plex Mono', monospace; opacity:0.75; transition:opacity .15s, color .15s, border-color .15s;
+  }
+  .btn-copy-desc:hover{opacity:1; color:var(--primary-dark); border-color:var(--primary);}
   .modal h3{font-size:19px; margin-bottom:4px;}
   .modal .modal-sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
   .modal-actions{display:flex; gap:10px; margin-top:22px;}
@@ -1167,13 +1174,34 @@ function openConteudoModal(id){
       <span>🏫 Turma ${c.turma}</span>
       <span>📘 ${c.disciplina}</span>
     </div>
-    <div class="conteudo-desc">${c.descricao || 'Sem descrição.'}</div>
+    <div class="conteudo-desc">
+      <button class="btn-copy-desc" id="btn-copiar-desc" title="Copiar conteúdo">Copiar</button>
+      ${c.descricao || 'Sem descrição.'}
+    </div>
     <div class="modal-actions">
       ${anexoBtn}
       <button class="btn btn-ghost" id="btn-fechar-conteudo-modal">Fechar</button>
     </div>
   `, true);
   $('#btn-fechar-conteudo-modal').addEventListener('click', closeModal);
+  $('#btn-copiar-desc').addEventListener('click', (e)=>{
+    const btn = e.currentTarget;
+    const texto = c.descricao || '';
+    const feedback = (ok)=>{
+      btn.textContent = ok ? 'Copiado ✓' : 'Erro ao copiar';
+      setTimeout(()=>{ btn.textContent = 'Copiar'; }, 1600);
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(texto).then(()=>feedback(true)).catch(()=>feedback(false));
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = texto;
+      document.body.appendChild(ta);
+      ta.select();
+      try{ document.execCommand('copy'); feedback(true); }catch(err){ feedback(false); }
+      ta.remove();
+    }
+  });
   $$('[data-download]', $('#modal-body')).forEach(btn=>btn.addEventListener('click', ()=>downloadFile(btn.dataset.download)));
 }
 
